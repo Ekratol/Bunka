@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Přírodopisná Honěná - 12 Labyrintů</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; background-color: #f0f2f5; margin: 0; padding: 10px; }
+        .container { max-width: 500px; margin: 0 auto; background: white; padding: 15px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); position: relative; }
+        canvas { background: #fff; border: 4px solid #333; margin: 10px auto; display: none; max-width: 100%; height: auto; }
+        .hidden { display: none; }
+        input, button { padding: 12px; font-size: 16px; margin: 5px; border-radius: 5px; border: 1px solid #ccc; }
+        button { background: #007bff; color: white; border: none; cursor: pointer; font-weight: bold; }
+        #controls { display: none; grid-template-columns: repeat(2, 120px); gap: 20px; justify-content: center; margin-top: 15px; }
+        .ctrl-btn { background: #17a2b8; color: white; font-size: 20px; font-weight: bold; border: none; border-radius: 10px; width: 120px; height: 70px; display: flex; align-items: center; justify-content: center; user-select: none; }
+        .ctrl-btn:active { background: #117a8b; }
+        #quiz-overlay { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.96); border-radius: 10px; flex-direction: column; justify-content: center; align-items: center; z-index: 10; }
+        .moznost-btn { display: block; width: 85%; margin: 8px auto; background: #28a745; }
+        #timer { font-size: 20px; font-weight: bold; color: #dc3545; }
+        #ukol-info { font-size: 18px; font-weight: bold; color: #007bff; margin: 5px 0; }
+        #vysledek-oznameni { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255,255,255,0.95); border-radius: 10px; flex-direction: column; justify-content: center; align-items: center; z-index: 20; font-size: 45px; font-weight: bold; }
+        .text-spravne { color: #28a745; }
+        .text-chyba { color: #dc3545; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>Přírodopisná Honěná</h1>
+    <div id="start-screen">
+        <p>Zadej své jméno pro spuštění hry:</p>
+        <input type="text" id="jmeno" placeholder="Jan Novák" required><br>
+        <button onclick="spustitHru()">Start Hry</button>
+    </div>
+    <div id="vysledek-oznameni"></div>
+    <div id="quiz-overlay">
+        <div id="timer">Čas: 0s</div>
+        <h3 id="otazka-text">Otázka</h3>
+        <div id="odpovedi-box"></div>
+    </div>
+    <div id="ukol-info" class="hidden">Aktuální úkol: Najdi číslo 0</div>
+    <canvas id="mazeCanvas" width="440" height="440"></canvas>
+    <div id="controls">
+        <button class="ctrl-btn" onclick="otocitHrace(-1)">◀ Vlevo</button>
+        <button class="ctrl-btn" onclick="otocitHrace(1)">Vpravo ▶</button>
+    </div>
+    <div id="end-screen" class="hidden"></div>
+</div>
+<script>
+const canvas = document.getElementById("mazeCanvas");
+const ctx = canvas.getContext("2d");
+
+const otazky = {
+    0: { q: "Která část buňky řídí její činnost a obsahuje DNA?", a: ["Buněčná stěna", "Jádro", "Cytoplazma"], correct: 1 },
+    1: { q: "Jak se jmenuje zelené barvivo v rostlinných buňkách?", a: ["Chlorofyl", "Hemoglobin", "Karoten"], correct: 0 },
+    2: { q: "Který z těchto organismů patří mezi jednobuněčné prvoky?", a: ["Trepanosoma", "Měňavka velká", "Ploštěnka mléčná"], correct: 1 },
+    3: { q: "K čemu slouží trepce velké stažitelná vakuola?", a: ["K pohybu", "K trávení potravy", "K vylučování nadbytečné vody"], correct: 2 },
+    4: { q: "Která z těchto skupin živočichů patří mezi bezobratlé?", a: ["Žahavci", "Ryby", "Obojživelníci"], correct: 0 },
+    5: { q: "Jakým způsobem dýchá nezmar hnědý?", a: ["Žábrami", "Celým povrchem těla", "Plicními vaky"], correct: 1 },
+    6: { q: "Který parazit žije v tenkém střevě člověka?", a: ["Tasemnice bezbranná", "Roup dětský", "Škrkavka dětská"], correct: 0 },
+    7: { q: "Do jaké skupiny měkkýšů patří hlemýžď zahradní?", a: ["Plži", "Mlži", "Hlavonožci"], correct: 0 },
+    8: { q: "Který kroužkovec pomáhá provzdušňovat a zúrodňovat půdu?", a: ["Pijavka lékařská", "Žížala obecná", "Nereidka hnědá"], correct: 1 },
+    9: { q: "Jak se jmenuje proces, při kterém rostliny produkují kyslík?", a: ["Dýchání", "Fotosyntéza", "Rozmnožování"], correct: 1 }
+};
+
+const sirkaMapy = 11;
+const vyskaMapy = 11;
+const velikostPole = 40;
+let mapa = [];
+let jmenoZaka = "";
+let aktualniCilCislo = 0;
+let statistiky = {};
+for(let i=0; i<=9; i++) statistiky[i] = { cas: 0, chyby: 0 };
+let hlavniCasovac;
+let hraBezi = false;
+
+const smeryLogika = [{x:0, y:-1}, {x:1, y:0}, {x:0, y:1}, {x:-1, y:0}];
+
+// Hráč a Pohyblivý cíl (číslo)
+let hrac = { x: 20, y: 20, smer: 1 }; 
+let cisloObjekt = { x: 220, y: 220, smer: 3, gridX: 5, gridY: 5 };
+let naplanovanaZmenaSmeru = null;
+
+// Tři různé pevné labyrinty (šablony) plné L a T chodeb (1=zeď, 0=cesta)
+const labyrintSablony = [
+    "000000000000111011101000001000001011101110100000100000101110111010000010000010111011101000000000000", // Labyrint A
+    "000000000000101110101000000000000010101010100011101110001010101010000000000000101110101000000000000", // Labyrint B
+    "0000000000001110101110000010000000101011101000001010000000101011101000001000000011101011100000000000"  // Labyrint C
+];
+
+function otocMatici90(matice) {
+    let n = matice.length;
+    let nova = Array(n).fill().map(() => Array(n).fill(0));
+    for (let r = 0; r < n; r++) {
+        for (let c = 0; c < n; c++) { nova[c][n - 1 - r] = matice[r][c]; }
+    }
+    return nova;
+}
+
+function generujBludiste() {
+    // 1. Náhodný výběr jedné ze 3 šablon
+    let vybranaSablona = labyrintSablony[Math.floor(Math.random() * labyrintSablony.length)];
+    let základníMatice = [];
+    for (let i = 0; i < 11; i++) {
+        základníMatice.push(vybranaSablona.substring(i * 11, (i + 1) * 11).split("").map(Number));
+    }
+    
+    // 2. Náhodné otočení matice (0, 1, 2, nebo 3 krát o 90 stupňů)
+    let pocetOtoceni = Math.floor(Math.random() * 4);
+    mapa = základníMatice;
+    for (let i = 0; i < pocetOtoceni; i++) {
+        mapa = otocMatici90(mapa);
+    }
+    
+    // Garantované uvolnění startu a cíle po otočení
+    mapa[0][0] = 0; mapa[0][1] = 0; mapa[1][0] = 0;
+    mapa[10][10] = 0; mapa[10][9] = 0; mapa[9][10] = 0;
+    
+    vygenerujDalsiCislo();
+}
+function ziskejVzdalenost(x1, y1, x2, y2) {
+    return Math.abs(x1 - x2) + Math.abs(y1 - y2);
+}
+
+function vygenerujDalsiCislo() {
+    if (aktualniCilCislo > 9) return;
+    let nalezenaPozice = false;
+    let gridX = Math.floor(hrac.x / velikostPole);
+    let gridY = Math.floor(hrac.y / velikostPole);
+    while (!nalezenaPozice) {
+        let rx = Math.floor(Math.random() * sirkaMapy);
+        let ry = Math.floor(Math.random() * vyskaMapy);
+        let vzdalenost = ziskejVzdalenost(rx, ry, gridX, gridY);
+        if (mapa[ry][rx] === 0 && vzdalenost >= 5 && !(rx === 10 && ry === 10)) {
+            cisloObjekt.x = rx * velikostPole + velikostPole / 2;
+            cisloObjekt.y = ry * velikostPole + velikostPole / 2;
+            cisloObjekt.smer = Math.floor(Math.random() * 4);
+            cisloObjekt.targetGridX = rx;
+            cisloObjekt.targetGridY = ry;
+            nalezenaPozice = true;
+        }
+    }
+}
+
+function spustitHru() {
+    jmenoZaka = document.getElementById("jmeno").value.trim();
+    if (!jmenoZaka) { alert("Zadej jméno!"); return; }
+    generujBludiste();
+    document.getElementById("start-screen").style.display = "none";
+    canvas.style.display = "block";
+    document.getElementById("controls").style.display = "grid";
+    document.getElementById("ukol-info").classList.remove("hidden");
+    hraBezi = true; requestAnimationFrame(herniSmycka);
+    hlavniCasovac = setInterval(() => {
+        if (aktualniCilCislo <= 9) {
+            statistiky[aktualniCilCislo].cas++;
+            if (!hraBezi && document.getElementById("quiz-overlay").style.display === "flex") {
+                document.getElementById("timer").innerText = `Čas: ${statistiky[aktualniCilCislo].cas}s`;
+            }
+        }
+    }, 1000);
+}
+
+function herniSmycka() {
+    if (!hraBezi) { requestAnimationFrame(herniSmycka); return; }
+    let rychlost = 2; 
+    
+    let krok = smeryLogika[hrac.smer];
+    let gridX = Math.floor(hrac.x / velikostPole); let gridY = Math.floor(hrac.y / velikostPole);
+    let stredX = gridX * velikostPole + velikostPole / 2; let stredY = gridY * velikostPole + velikostPole / 2;
+    if (Math.abs(hrac.x - stredX) < rychlost && Math.abs(hrac.y - stredY) < rychlost) {
+        hrac.x = stredX; hrac.y = stredY;
+        if (naplanovanaZmenaSmeru !== null) {
+            let zkusebniSmer = (hrac.smer + naplanovanaZmenaSmeru + 4) % 4;
+            let zkusebniKrok = smeryLogika[zkusebniSmer];
+            let testX = gridX + zkusebniKrok.x; let testY = gridY + zkusebniKrok.y;
+            if (testX >= 0 && testX < sirkaMapy && testY >= 0 && testY < vyskaMapy && mapa[testY][testX] !== 1) {
+                hrac.smer = zkusebniSmer; krok = smeryLogika[hrac.smer]; naplanovanaZmenaSmeru = null;
+            }
+        }
+        let dalsiX = gridX + krok.x; let dalsiY = gridY + krok.y;
+        if (dalsiX < 0 || dalsiX >= sirkaMapy || dalsiY < 0 || dalsiY >= vyskaMapy || mapa[dalsiY][dalsiX] === 1) { krok = {x:0,y:0}; }
+    }
+    hrac.x += krok.x * rychlost; hrac.y += krok.y * rychlost;
+    if (aktualniCilCislo <= 9) {
+        let cKrok = smeryLogika[cisloObjekt.smer];
+        let cGridX = Math.floor(cisloObjekt.x / velikostPole); let cGridY = Math.floor(cisloObjekt.y / velikostPole);
+        let cStredX = cGridX * velikostPole + velikostPole / 2; let cStredY = cGridY * velikostPole + velikostPole / 2;
+        
+        if (Math.abs(cisloObjekt.x - cStredX) < rychlost && Math.abs(cisloObjekt.y - cStredY) < rychlost) {
+            cisloObjekt.x = cStredX; cisloObjekt.y = cStredY;
+            let mozneSmery = [];
+            for (let s = 0; s < 4; s++) {
+                let testX = cGridX + smeryLogika[s].x; let testY = cGridY + smeryLogika[s].y;
+                if (testX >= 0 && testX < sirkaMapy && testY >= 0 && testY < vyskaMapy && mapa[testY][testX] !== 1) { mozneSmery.push(s); }
+            }
+            if (mozneSmery.length > 0) {
+                let hGridX = Math.floor(hrac.x / velikostPole); let hGridY = Math.floor(hrac.y / velikostPole);
+                let distToPlayer = ziskejVzdalenost(cGridX, cGridY, hGridX, hGridY);
+                if (distToPlayer <= 5) {
+                    let nejlepsiSmer = cisloObjekt.smer; let maxDist = -1;
+                    for (let s of mozneSmery) {
+                        let testX = cGridX + smeryLogika[s].x; let testY = cGridY + smeryLogika[s].y;
+                        let tDist = ziskejVzdalenost(testX, testY, hGridX, hGridY);
+                        if (tDist > maxDist) { maxDist = tDist; nejlepsiSmer = s; }
+                    }
+                    cisloObjekt.smer = nejlepsiSmer;
+                } else {
+                    if (cGridX === cisloObjekt.targetGridX && cGridY === cisloObjekt.targetGridY || Math.random() > 0.8) {
+                        let randDest = mozneSmery[Math.floor(Math.random() * mozneSmery.length)];
+                        cisloObjekt.smer = randDest;
+                        cisloObjekt.targetGridX = cGridX + smeryLogika[randDest].x * 3;
+                        cisloObjekt.targetGridY = cGridY + smeryLogika[randDest].y * 3;
+                    } else if (!mozneSmery.includes(cisloObjekt.smer)) {
+                        cisloObjekt.smer = mozneSmery[Math.floor(Math.random() * mozneSmery.length)];
+                    }
+                }
+            }
+            cKrok = smeryLogika[cisloObjekt.smer];
+            let cDalsiX = cGridX + cKrok.x; let cDalsiY = cGridY + cKrok.y;
+            if (cDalsiX < 0 || cDalsiX >= sirkaMapy || cDalsiY < 0 || cDalsiY >= vyskaMapy || mapa[cDalsiY][cDalsiX] === 1) { cKrok = {x:0,y:0}; }
+        }
+        cisloObjekt.x += cKrok.x * rychlost; cisloObjekt.y += cKrok.y * rychlost;
+
+        let vzdalenostHonicich = Math.sqrt(Math.pow(hrac.x - cisloObjekt.x, 2) + Math.pow(hrac.y - cisloObjekt.y, 2));
+        if (vzdalenostHonicich < 24) { naplanovanaZmenaSmeru = null; otevriOtazku(aktualniCilCislo); }
+    }
+
+    if (gridX === 10 && gridY === 10 && aktualniCilCislo > 9) { ukonciHru(); return; }
+    vykresliBludiste(); requestAnimationFrame(herniSmycka);
+}
+
+function vykresliBludiste() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    for (let r = 0; r < vyskaMapy; r++) {
+        for (let c = 0; c < sirkaMapy; c++) {
+            if (mapa[r][c] === 1) { ctx.fillStyle = "#343a40"; ctx.fillRect(c * velikostPole, r * velikostPole, velikostPole, velikostPole); }
+        }
+    }
+    ctx.fillStyle = (aktualniCilCislo > 9) ? "#28a745" : "#fff"; 
+    ctx.fillRect(10 * velikostPole, 10 * velikostPole, velikostPole, velikostPole);
+
+    if (aktualniCilCislo <= 9) {
+        ctx.fillStyle = "#ffc107"; ctx.fillRect(cisloObjekt.x - velikostPole/2, cisloObjekt.y - velikostPole/2, velikostPole, velikostPole);
+        ctx.fillStyle = "#000"; ctx.font = "bold 20px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText(aktualniCilCislo.toString(), cisloObjekt.x, cisloObjekt.y);
+    }
+    ctx.save(); ctx.translate(hrac.x, hrac.y); ctx.rotate((hrac.smer * Math.PI) / 2);
+    ctx.fillStyle = "#007bff"; ctx.beginPath(); ctx.moveTo(0, -velikostPole/3); ctx.lineTo(velikostPole/3, velikostPole/3); ctx.lineTo(-velikostPole/3, velikostPole/3); ctx.closePath(); ctx.fill(); ctx.restore();
+}
+
+function otocitHrace(zchange) {
+    if (!hraBezi) return;
+    let gridX = Math.floor(hrac.x / velikostPole); let gridY = Math.floor(hrac.y / velikostPole);
+    let stredX = gridX * velikostPole + velikostPole / 2; let stredY = gridY * velikostPole + velikostPole / 2;
+    if (hrac.x === stredX && hrac.y === stredY) { hrac.smer = (hrac.smer + zchange + 4) % 4; naplanovanaZmenaSmeru = null; }
+    else { naplanovanaZmenaSmeru = zchange; }
+}
+
+// NOVÉ: Posluchač klávesnice pro ovládání fyzickými šipkami vlevo a vpravo
+window.addEventListener("keydown", function(event) {
+    if (event.key === "ArrowLeft") {
+        otocitHrace(-1); event.preventDefault();
+    } else if (event.key === "ArrowRight") {
+        otocitHrace(1); event.preventDefault();
+    }
+});
+
+function otevriOtazku(cislo) {
+    hraBezi = false; document.getElementById("timer").innerText = `Čas: ${statistiky[cislo].cas}s`;
+    const data = otazky[cislo]; document.getElementById("otazka-text").innerText = `Otázka č. ${cislo}: ${data.q}`;
+    const box = document.getElementById("odpovedi-box"); box.innerHTML = "";
+    data.a.forEach((odpoved, index) => {
+        let btn = document.createElement("button"); btn.className = "moznost-btn"; btn.innerText = odpoved; btn.onclick = () => zkontrolujOdpoved(index); box.appendChild(btn);
+    });
+    document.getElementById("quiz-overlay").style.display = "flex";
+}
+
+function zkontrolujOdpoved(indexSpravne) {
+    document.getElementById("quiz-overlay").style.display = "none";
+    const oznameniBox = document.getElementById("vysledek-oznameni");
+    if (indexSpravne === otazky[aktualniCilCislo].correct) {
+        oznameniBox.innerHTML = "<span class='text-spravne'>👍 SPRÁVNĚ!</span>"; oznameniBox.style.display = "flex";
+        setTimeout(() => {
+            oznameniBox.style.display = "none"; aktualniCilCislo++;
+            if (aktualniCilCislo <= 9) { document.getElementById("ukol-info").innerText = `Aktuální úkol: Chyť číslo ${aktualniCilCislo}`; vygenerujDalsiCislo(); }
+            else { document.getElementById("ukol-info").innerText = "Vše chyceno! Dojeď do zeleného cíle!"; }
+            hraBezi = true;
+        }, 1500);
+    } else {
+        oznameniBox.innerHTML = "<span class='text-chyba'>❌ CHYBA!<br><span style='font-size:20px; color:#555;'>Teleport na start...</span></span>"; oznameniBox.style.display = "flex";
+        statistiky[aktualniCilCislo].chyby++;
+        setTimeout(() => {
+            oznameniBox.style.display = "none"; hrac.x = 20; hrac.y = 20; hrac.smer = 1; hraBezi = true;
+        }, 2000);
+    }
+}
+
+function ukonciHru() {
+    hraBezi = false; clearInterval(hlavniCasovac);
+    canvas.style.display = "none"; document.getElementById("controls").style.display = "none"; document.getElementById("ukol-info").style.display = "none";
+    let tabulkaHtml = `<h2>Konec hry! 🎉</h2><h3 style='color:#007bff; font-size:24px;'>Žák: ${jmenoZaka}</h3>`;
+    tabulkaHtml += `<table border='1' style='margin:20px auto; border-collapse:collapse; width:90%; font-size:18px; text-align:center;'><tr style='background:#eee;'><th>Otázka</th><th>Čas</th><th>Chyby</th></tr>`;
+    let celkoveChyby = 0;
+    for (let i = 0; i <= 9; i++) {
+        tabulkaHtml += `<tr><td><b>č. ${i}</b></td><td>${statistiky[i].cas}s</td><td style='color:${statistiky[i].chyby > 0 ? "red" : "green"}'><b>${statistiky[i].chyby}</b></td></tr>`;
+        celkoveChyby += statistiky[i].chyby;
+    }
+    tabulkaHtml += `</table><p style='font-size:22px;'><b>Celkový počet chyb: <span style='color:${celkoveChyby > 0 ? "red" : "green"}'>${celkoveChyby}</span></b></p>`;
+    document.getElementById("end-screen").innerHTML = tabulkaHtml; document.getElementById("end-screen").classList.remove("hidden");
+}
+</script>
+</body>
+</html>
