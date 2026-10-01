@@ -295,19 +295,74 @@ function zkontrolujOdpoved(indexSpravne) {
     }
 }
 
-function ukonciHru() {
-    hraBezi = false; clearInterval(hlavniCasovac);
-    canvas.style.display = "none"; document.getElementById("controls").style.display = "none"; document.getElementById("ukol-info").style.display = "none";
+     function ukonciHru() {
+    hraBezi = false; 
+    clearInterval(hlavniCasovac);
+    
+    canvas.style.display = "none"; 
+    document.getElementById("controls").style.display = "none"; 
+    document.getElementById("ukol-info").style.display = "none";
+    
     let tabulkaHtml = `<h2>Konec hry! 🎉</h2><h3 style='color:#007bff; font-size:24px;'>Žák: ${jmenoZaka}</h3>`;
     tabulkaHtml += `<table border='1' style='margin:20px auto; border-collapse:collapse; width:90%; font-size:18px; text-align:center;'><tr style='background:#eee;'><th>Otázka</th><th>Čas</th><th>Chyby</th></tr>`;
+    
     let celkoveChyby = 0;
     for (let i = 0; i <= 9; i++) {
         tabulkaHtml += `<tr><td><b>č. ${i}</b></td><td>${statistiky[i].cas}s</td><td style='color:${statistiky[i].chyby > 0 ? "red" : "green"}'><b>${statistiky[i].chyby}</b></td></tr>`;
         celkoveChyby += statistiky[i].chyby;
     }
+    
     tabulkaHtml += `</table><p style='font-size:22px;'><b>Celkový počet chyb: <span style='color:${celkoveChyby > 0 ? "red" : "green"}'>${celkoveChyby}</span></b></p>`;
-    document.getElementById("end-screen").innerHTML = tabulkaHtml; document.getElementById("end-screen").classList.remove("hidden");
-}
+    
+    // Přidáme malou textovou informaci pro žáka, že se data odesílají
+    tabulkaHtml += `<p id="stav-odeslani" style='color:orange; font-size:16px;'>Odesílám výsledky panu učiteli...</p>`;
+    
+    document.getElementById("end-screen").innerHTML = tabulkaHtml; 
+    document.getElementById("end-screen").classList.remove("hidden");
+
+    // ==========================================
+    // KÓD PRO AUTOMATICKÉ ODESLÁNÍ NA E-MAIL
+    // ==========================================
+    
+    // Sem vložte svůj odkaz, který získáte zdarma na formspree.io
+   
+   const urlFormulare = "https://formspree.io/f/mgavqrgn"; 
+   let textovyPrehled = "";
+    for (let i = 0; i <= 9; i++) {
+        textovyPrehled += `Otázka č. ${i}: Čas ${statistiky[i].cas}s, Chyby: ${statistiky[i].chyby}\n`;
+    }
+
+    fetch(urlFormulare, {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            Ziak: jmenoZaka,
+            Celkem_Chyb: celkoveChyby,
+            // Pošleme naformátovaný text. Formspree v e-mailu zachová konce řádků (\n)
+            Podrobne_Statistiky: textovyPrehled, 
+            Datum: new Date().toLocaleString("cs-CZ")
+        })
+    })
+
+    .then(response => {
+        const textStavu = document.getElementById("stav-odeslani");
+        if (response.ok) {
+            textStavu.innerText = "✓ Výsledky byly úspěšně odeslány!";
+            textStavu.style.color = "green";
+        } else {
+            textStavu.innerText = "✕ Chyba odesílání na server. Napiš si výsledek na papír.";
+            textStavu.style.color = "red";
+        }
+    })
+    .catch(error => {
+        const textStavu = document.getElementById("stav-odeslani");
+        textStavu.innerText = "✕ Chyba sítě. Zkontroluj připojení k internetu.";
+        textStavu.style.color = "red";
+    });
+}      
 </script>
 </body>
 </html>
+
